@@ -1,12 +1,13 @@
 class Row:
-    def __init__(self, row_id, values, table):
+    def __init__(self, row_id, values, table=None, default_value=None):
         self.row_id = row_id
         self.values = values
         self.table = table
-        self.column_ids = table.column_ids
+        self.column_ids = table.column_ids # add capability to have no row on its own.
         self.as_dict = dict(zip(self.column_ids, self.values))
+        self.default_value = default_value
 
-    # __update_value is needed so the Column class can update
+    # _update_value is needed so the Column class can update
     # this class without this class trying to update the Column
     # class when it gets updated
     def _update_value(self, column_id, new_value):
@@ -33,12 +34,13 @@ class Row:
         return f"Row({self.values})"
 
 class Column:
-    def __init__(self, column_id, values, table):
+    def __init__(self, column_id, values, table, default_value=None):
         self.column_id = column_id
         self.values = values
         self.table = table
         self.row_ids = table.row_ids
         self.as_dict = dict(zip(self.row_ids, self.values))
+        self.default_value = default_value
 
     def _update_value(self, row_id, new_value):
         self.as_dict[row_id] = new_value
@@ -62,6 +64,26 @@ class Column:
 
     def __repr__(self):
         return f"Column({self.values})"
+
+    def __add__(self, other):
+        if isinstance(other, Column):
+            column_ids = [self.column_id, other.column_id]
+            row_ids = self.row_ids
+            for row_id in other.row_ids:
+                if row_id not in self.row_ids:
+                    row_ids.append(row_id)
+            data = list()
+            for row_id in row_ids:
+                data.append([
+                    self[row_id] if row_id in self.row_ids else self.default_value,
+                    other[row_id] if row_id in other.row_ids else other.default_value
+                ])
+            return Table(column_ids, row_ids, data)
+        elif isinstance(other, Table):
+            
+
+
+
 
 class Table:
     def __init__(self, column_ids: list, row_ids: list, data):
