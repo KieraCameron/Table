@@ -197,7 +197,7 @@ class Table:
             raise ValueError("number of columns in data should match column ids")
         self.column_ids = column_ids
         self.row_ids = row_ids
-        self.data = data
+        self.data = data # a 2D matrix
         self.default_value = default_value
 
         self.columns = dict()
@@ -232,9 +232,22 @@ class Table:
                 key.start in self.row_ids and key.stop in self.column_ids:
                 raise KeyError("start and stop slices must be both row ids or column ids")
             section = self.get_slice_section(key)
-
-
-        if key in self.column_ids:
+            if key.start in self.column_ids or key.stop in self.column_ids:
+                data = list()
+                for row in self.data:
+                    data.append(row[section])
+                column_ids = self.column_ids[section]
+                return Table(column_ids, self.row_ids, data, self.default_value)
+            elif key.start in self.row_ids or key.stop in self.row_ids:
+                data = self.data[section]
+                row_ids = self.row_ids[section]
+                return Table(self.column_ids, row_ids, data, self.default_value)
+            elif isinstance(key.step, int):
+                raise KeyError("step is defined without targetting rows or columns")
+            elif key.start is None and key.stop is None and key.step is None:
+                return Table(self.column_ids, self.row_ids, self.data, self.default_value)
+            assert False, "slice start, stop, and step not accounted for"
+        elif key in self.column_ids:
             return self.columns[key]
         elif key in self.row_ids:
             return self.rows[key]
@@ -243,11 +256,23 @@ class Table:
 
     def __setitem__(self, key, value):
         if key in self.column_ids:
-            self.columns[key] = _Column(key, value, self)
+            self.columns[key] = _Column(key, value, table=self, default_value=self.default_value)
+            index = self.column_ids.index(key)
+            for row_number, row in enumerate(self.data):
+                self.data[row_number][index] =
+                #_Clumn values are lists, not lists of lists. im pretty sure i assumed the latter somewhere above.
         elif key in self.row_ids:
-            self.rows[key] = _Row(key, value, self)
+            self.rows[key] = _Row(key, value, table=self)
         else:
             raise KeyError(f"The key '{key}' does not exist")
+
+    def transpose(self):
+        data = list()
+        for column_number, column_id in enumerate(self.column_ids):
+            data.append([])
+            for row in self.data:
+                data[column_number].append(row[column_number])
+        return Table(self.row_ids, self.column_ids, data, self.default_value)
 
     def _split_row_ids(self, other):
         other_only_row_ids = list()
