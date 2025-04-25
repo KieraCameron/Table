@@ -30,14 +30,17 @@ class _Row:
         else:
             raise KeyError(f"The key '{column_id}' does not exist")
 
+    def get_slice_section(self, slice_obj):
+        start_index = self._get_column_index(slice_obj.start)
+        stop_index = self._get_column_index(slice_obj.stop)
+        step = slice_obj.step
+        if not isinstance(step, int) and step is not None:
+            raise TypeError("step must be None or of type 'int'")
+        return slice(start_index, stop_index, step)
+
     def __getitem__(self, key):
         if isinstance(key, slice):
-            start_index = self._get_column_index(key.start)
-            stop_index = self._get_column_index(key.stop)
-            step = key.step
-            if not isinstance(step, int) and step is not None:
-                raise TypeError("step must be None or of type 'int'")
-            section = slice(start_index, stop_index, step)
+            section = self.get_slice_section(key)
             column_ids = self.column_ids[section]
             data = self.data[section]
             return _Row(self.row_id, data, column_ids, None, self.default_value)
@@ -47,6 +50,12 @@ class _Row:
             raise KeyError(f"The key '{key}' does not exist")
 
     def __setitem__(self, key, value):
+        if isinstance(key, slice):
+            section = self.get_slice_section(key)
+            if len(value) != (section.stop - section.start):
+                raise KeyError("mismatching length between slice range and value")
+            for column_id, v in zip(self.column_ids[section], value):
+                self[column_id] = v
         if key in self.column_ids:
             self._update_value(key, value)
             if self.table is not None:
@@ -78,11 +87,18 @@ class _Row:
             pass
 
 class _Column:
-    def __init__(self, column_id, data, table, default_value=None):
+    def __init__(self, column_id, data, row_ids=None, table=None, default_value=None):
         self.column_id = column_id
         self.data = data
+        if table is not None and row_ids is not None:
+            raise Exception("row ids are ambiguous. Both row_ids and table parameters are assigned.")
+        elif table is not None:
+            self.row_ids = table.row_ids
+        elif row_ids is not None:
+            self.row_ids = row_ids
+        else:
+            self.row_ids = list(range(len(self.data)))
         self.table = table
-        self.row_ids = table.row_ids
         self._as_dict = dict(zip(self.row_ids, self.data))
         self.default_value = default_value
 
@@ -90,16 +106,45 @@ class _Column:
         self[row_id] = new_value
         self.data = list(self._as_dict.values())
 
+    def _get_row_index(self, row_id):
+        """gets index of row, returns None if None"""
+        if row_id in self.row_ids:
+            return self.row_ids.index(row_id)
+        elif row_id is None:
+            return None
+        else:
+            raise KeyError(f"The key '{row_id}' does not exist")
+
+    def get_slice_section(self, slice_obj):
+        start_index = self._get_row_index(slice_obj.start)
+        stop_index = self._get_row_index(slice_obj.stop)
+        step = slice_obj.step
+        if not isinstance(step, int) and step is not None:
+            raise TypeError("step must be None or of type 'int'")
+        return slice(start_index, stop_index, step)
+
     def __getitem__(self, key):
-        if key in self.row_ids:
+        if isinstance(key, slice):
+            section = self.get_slice_section(key)
+            row_ids = self.row_ids[section]
+            data = self.data[section]
+            return _Column(self.column_id, data, row_ids, None, self.default_value)
+        elif key in self.row_ids:
             return self._as_dict[key]
         else:
             raise KeyError(f"The key '{key}' does not exist")
 
     def __setitem__(self, key, value):
-        if key in self.row_ids:
+        if isinstance(key, slice):
+            section = self.get_slice_section(key)
+            if len(value) != (section.stop - section.start):
+                raise KeyError("mismatching length between slice range and value")
+            for row_id, v in zip(self.row_ids[section], value):
+                self[row_id] = v
+        elif key in self.row_ids:
             self._update_value(key, value)
-            self.table.rows[key]._update_value(self.column_id, value)
+            if self.table is not None:
+                self.table.rows[key]._update_value(self.column_id, value)
         else:
             raise KeyError(f"The key '{key}' does not exist")
 
@@ -163,7 +208,32 @@ class Table:
         for row_number, row_id in enumerate(row_ids):
             self.rows[row_id] = _Row(row_id, data[row_number], self)
 
+    def get_slice_section(self, slice_obj):
+        start_index = self._get_key_index(slice_obj.start)
+        stop_index = self._get_key_index(slice_obj.stop)
+        step = slice_obj.step
+        if not isinstance(step, int) and step is not None:
+            raise TypeError("step must be None or of type 'int'")
+        return slice(start_index, stop_index, step)
+
+    def _get_key_index(self, key):
+        if key in self.column_ids:
+            return self.column_ids.index(key)
+        elif key in self.row_ids:
+            return self.row_ids.index(key)
+        elif key is None:
+            return None
+        else:
+            raise KeyError(f"the key {key} does not exist")
+
     def __getitem__(self, key):
+        if isinstance(key, slice):
+            if key.start in self.column_ids and key.stop in self.row_ids or \
+                key.start in self.row_ids and key.stop in self.column_ids:
+                raise KeyError("start and stop slices must be both row ids or column ids")
+            section = self.get_slice_section(key)
+
+
         if key in self.column_ids:
             return self.columns[key]
         elif key in self.row_ids:
