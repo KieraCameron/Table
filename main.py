@@ -1,9 +1,16 @@
 class _Row:
-    def __init__(self, row_id, data, table=None, default_value=None):
+    def __init__(self, row_id, data, column_ids=None, table=None, default_value=None):
         self.row_id = row_id
         self.data = data
         self.table = table
-        self.column_ids = table.column_ids # add capability to have a row on its own.
+        if table is not None and column_ids is not None:
+            raise Exception("column ids are ambiguous. Both column_ids and table parameters are assigned.")
+        elif table is not None:
+            self.column_ids = table.column_ids
+        elif column_ids is not None:
+            self.column_ids = column_ids
+        else:
+            self.column_ids = list(range(len(self.data)))
         self._as_dict = dict(zip(self.column_ids, self.data))
         self.default_value = default_value
 
@@ -14,8 +21,27 @@ class _Row:
         self[column_id] = new_value
         self.data = list(self._as_dict.values())
 
+    def _get_column_index(self, column_id):
+        """gets index of column, returns None if None"""
+        if column_id in self.column_ids:
+            return self.column_ids.index(column_id)
+        elif column_id is None:
+            return None
+        else:
+            raise KeyError(f"The key '{column_id}' does not exist")
+
     def __getitem__(self, key):
-        if key in self.column_ids:
+        if isinstance(key, slice):
+            start_index = self._get_column_index(key.start)
+            stop_index = self._get_column_index(key.stop)
+            step = key.step
+            if not isinstance(step, int) and step is not None:
+                raise TypeError("step must be None or of type 'int'")
+            section = slice(start_index, stop_index, step)
+            column_ids = self.column_ids[section]
+            data = self.data[section]
+            return _Row(self.row_id, data, column_ids, None, self.default_value)
+        elif key in self.column_ids:
             return self._as_dict[key]
         else:
             raise KeyError(f"The key '{key}' does not exist")
@@ -23,7 +49,8 @@ class _Row:
     def __setitem__(self, key, value):
         if key in self.column_ids:
             self._update_value(key, value)
-            self.table.columns[key]._update_value(self.row_id, value)
+            if self.table is not None:
+                self.table.columns[key]._update_value(self.row_id, value)
         else:
             raise KeyError(f"The key '{key}' does not exist")
 
@@ -181,7 +208,6 @@ class Table:
                 other_only_column_ids.append(column_id)
         return other_only_column_ids, matching_column_ids
 
-
     def _merge_data(self, other):
         other_only_column_ids, matching_column_ids = self._split_column_ids(other)
         other_only_row_ids, matching_row_ids = self._split_row_ids(other)
@@ -193,23 +219,11 @@ class Table:
         for row_id, column_id in zip(matching_row_ids, matching_column_ids):
             pass
 
-
-
-
-
-
     def __add__(self, other):
         if not (isinstance(other, Table) or isinstance(other, _Row) or isinstance(other, _Column)):
             raise TypeError(f"can not add types 'Table' and {type(other).__name__}")
         if self.default_value != other.default_value:
             raise ValueError("can not merge tables with mismatched default values")
-        if isinstance(other, _Row):
-            if other.row_id in self.row_ids:
-
-
-
-
-
 
 
 def test():
