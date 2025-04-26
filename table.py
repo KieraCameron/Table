@@ -1,3 +1,7 @@
+class TableArray:
+    def __init__(self):
+
+
 class _Row:
     def __init__(self, row_id, data, column_ids=None, table=None, default_value=None):
         self.row_id = row_id
@@ -18,7 +22,7 @@ class _Row:
     # this class without this class trying to update the Column
     # class when it gets updated
     def _update_value(self, column_id, new_value):
-        self[column_id] = new_value
+        self._as_dict[column_id] = new_value
         self.data = list(self._as_dict.values())
 
     def _get_column_index(self, column_id):
@@ -99,11 +103,11 @@ class _Column:
         else:
             self.row_ids = list(range(len(self.data)))
         self.table = table
-        self._as_dict = dict(zip(self.row_ids, self.data))
+        self._as_dict = dict(zip(self.row_ids, self.data)) # make this a getter ??
         self.default_value = default_value
 
     def _update_value(self, row_id, new_value):
-        self[row_id] = new_value
+        self._as_dict[row_id] = new_value
         self.data = list(self._as_dict.values())
 
     def _get_row_index(self, row_id):
@@ -128,6 +132,7 @@ class _Column:
             section = self.get_slice_section(key)
             row_ids = self.row_ids[section]
             data = self.data[section]
+            # are there consequences of having None for table below?
             return _Column(self.column_id, data, row_ids, None, self.default_value)
         elif key in self.row_ids:
             return self._as_dict[key]
@@ -203,10 +208,10 @@ class Table:
         self.columns = dict()
         for i, col_id in enumerate(column_ids):
             values = [row[i] for row in data]
-            self.columns[col_id] = _Column(col_id, values, self)
+            self.columns[col_id] = _Column(col_id, values, table=self, default_value=self.default_value)
         self.rows = dict()
         for row_number, row_id in enumerate(row_ids):
-            self.rows[row_id] = _Row(row_id, data[row_number], self)
+            self.rows[row_id] = _Row(row_id, data[row_number], table=self, default_value=default_value)
 
     def get_slice_section(self, slice_obj):
         start_index = self._get_key_index(slice_obj.start)
@@ -232,7 +237,12 @@ class Table:
                 key.start in self.row_ids and key.stop in self.column_ids:
                 raise KeyError("start and stop slices must be both row ids or column ids")
             section = self.get_slice_section(key)
-            if key.start in self.column_ids or key.stop in self.column_ids:
+            if key.start is None and key.stop is None:
+                if key.step is None:
+                    return Table(self.column_ids, self.row_ids, self.data, self.default_value)
+                else:
+                    raise KeyError("step is defined without targeting rows or columns")
+            elif key.start in self.column_ids or key.stop in self.column_ids:
                 data = list()
                 for row in self.data:
                     data.append(row[section])
@@ -242,10 +252,6 @@ class Table:
                 data = self.data[section]
                 row_ids = self.row_ids[section]
                 return Table(self.column_ids, row_ids, data, self.default_value)
-            elif isinstance(key.step, int):
-                raise KeyError("step is defined without targetting rows or columns")
-            elif key.start is None and key.stop is None and key.step is None:
-                return Table(self.column_ids, self.row_ids, self.data, self.default_value)
             assert False, "slice start, stop, and step not accounted for"
         elif key in self.column_ids:
             return self.columns[key]
@@ -255,14 +261,44 @@ class Table:
             raise KeyError(f"The key '{key}' does not exist")
 
     def __setitem__(self, key, value):
-        if key in self.column_ids:
+        if isinstance(key, slice):
+            if key.start in self.column_ids and key.stop in self.row_ids or \
+                key.start in self.row_ids and key.stop in self.column_ids:
+                raise KeyError("start and stop slices must be both row ids or column ids")
+            section = self.get_slice_section(key)
+            if key.start is None and key.stop is None:
+                if key.step is None:
+                    return
+                else:
+                    raise KeyError("step is defined without targeting rows or columns")
+            elif key.start in self.column_ids or key.stop in self.column_ids:
+                if len(value) != len(self.column_ids):
+                    raise ValueError("length of slice does not match length of value assigned")
+                elif len(value[0]) != len(self.row_ids):
+                    raise ValueError("length of value assigned does not match length of data")
+                for row_number, row_id in enumerate(self.row_ids):
+
+
+            elif key.start in self.row_ids or key.stop in self.row_ids:
+                pass
+            assert False, "slice start, stop, and step not accounted for"
+
+        elif key in self.column_ids:
+            if len(value) != len(self.row_ids):
+                raise ValueError("length of value assigned does not match length of data")
             self.columns[key] = _Column(key, value, table=self, default_value=self.default_value)
             index = self.column_ids.index(key)
-            for row_number, row in enumerate(self.data):
-                self.data[row_number][index] =
-                #_Clumn values are lists, not lists of lists. im pretty sure i assumed the latter somewhere above.
+            for row_number, row_id in enumerate(self.row_ids):
+                self.data[row_number][index] = value[row_number]
+                self.rows[row_id]._update_value(key, value[row_number])
         elif key in self.row_ids:
-            self.rows[key] = _Row(key, value, table=self)
+            if len(value) != len(self.column_ids):
+                raise ValueError("length of value assigned does not match length of data coloumns")
+            self.rows[key] = _Row(key, value, table=self, default_value=self.default_value)
+            index = self.row_ids.index(key)
+            self.data[index] = value
+            for column_id, column_number in enumerate(self.column_ids):
+                self.columns[column_id]._update_value(key, value[column_number])
         else:
             raise KeyError(f"The key '{key}' does not exist")
 
@@ -330,10 +366,11 @@ def test():
     t = Table(bc, br, bt)
     t["c"]["2 Mo"] = 199
     t["Date"]["a"] = 0
-    print(t["c"])
-    print(t["2 Mo"])
-    for i in t["1.5 Mo"]:
-        print(i)
-    for i in t["1.5 Mo"]:
-        print(i)
-    print(t["a"])
+    print("t[c]:", t["c"])
+    print("t[2 Mo]:", t["2 Mo"])
+    print("t[a]:", t["a"])
+    print()
+    print(t["b":"c"]["1 Mo":])
+
+
+test()
