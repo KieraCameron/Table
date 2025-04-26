@@ -1,5 +1,113 @@
+"""
+Rules:
+table                       is a Table instance
+table[row]                  returns a TableArray instance with unique_id row
+table[column]               returns a TableArray instance with unique_id column
+table[row][column]          returns a value at row, column
+table[column][row]          is equivalent to table[row][column]
+table[row_1:row_5]          returns a Table instance with a subset of the rows, and all columns
+table[col_1:col_5]          returns a Table instance with all rows, and a subset of the columns
+table[row_1:row_5][col_1:col_5]
+                            returns a Table instance
+table[row] = [...]          replaces TableArray.data with the array
+table[column] = [...]       does the same
+table_1[row_1] = table_2[row_2]
+                            replaces the TableArray instance. row and column ids must match
+table_1[col_1] = table_2[col_2]
+                            replaces the TableArray instance. row and column ids must match
+table_1[row_1] = table_2[col_1]
+                            replaces the TableArray instance.
+                            the unique id of row_1 must match the unique_id of col_1, and
+                            same goes for data_ids.
+table[row][column] = v      assigns the value at row, column with v
+table[column][row] = v      is equivalent to assigning table[row][column]
+table[row_1:row_3] = [[...],[...],[...]]
+                            replaces the .data attribute in each TableArray from row_1 to row_3
+                            with the values of each nested array
+table[col_1:col_3] = [[...],[...],[...]]
+                            does the same
+table_1[row_1:row_3] = table_2
+                            sets values of table_2 to table_1. row ids must match. column ids must match
+table_1[col_1:col_3] = table_2
+                            does the same
+table_1[row_1:row_3][col_1:col_3] = table_2
+                            does the same
+table_1[row_1:row_3][col_1:col_3] =    [[a, b, c],
+                                        [c, d, e],
+                                        [f, g, h]]
+                            does the same
+table_1 + table_2           returns a Table. columns and rows can get added on.
+                            values that do not exist get replaced by a default_value
+table_1 - table_2           removes values all data, rows, and columns of table_2 from table_1.
+                            row and column ids must match
+Start with disallowing the return and assignment of lists.
+See how feasible using only objects is.
+I think using objects will be easier for me and the user of this module.
+"""
+
 class TableArray:
-    def __init__(self):
+    def __init__(self, unique_id, data, data_ids=None, table=None, default_value=None):
+        self.unique_id = unique_id
+        self.data = data
+        self.table = table
+        if table is not None and data_ids is not None:
+            raise Exception("data ids are ambiguous. Both data_ids and table parameters are assigned.")
+        elif table is not None: # ???? CHECK HERE
+            self.data_ids = table.data_ids
+        elif data_ids is not None:
+            self.data_ids = data_ids
+        else:
+            self.data_ids = list(range(len(self.data)))
+        self._as_dict = dict(zip(self.data_ids, self.data))
+        self.default_value = default_value
+
+    def _get_id_index(self, data_id):
+        """gets index of column, returns None if None"""
+        if data_id in self.data_ids:
+            return self.data_ids.index(data_id)
+        elif data_id is None:
+            return None
+        else:
+            raise KeyError(f"The key '{data_id}' does not exist")
+
+    def get_slice_section(self, slice_obj):
+        start_index = self._get_id_index(slice_obj.start)
+        stop_index = self._get_id_index(slice_obj.stop)
+        step = slice_obj.step
+        if not isinstance(step, int) and step is not None:
+            raise TypeError("step must be None or of type 'int'")
+        return slice(start_index, stop_index, step)
+
+    def __getitem__(self, key):
+        if isinstance(key, slice):
+            section = self.get_slice_section(key)
+            data_ids = self.data_ids[section]
+            data = self.data[section]
+            return _Row(self.unique_id, data, data_ids, None, self.default_value) # SHOULD IT BE NONE
+        elif key in self.data_ids:
+            return self._as_dict[key]
+        else:
+            raise KeyError(f"The key '{key}' does not exist")
+
+    def __setitem__(self, key, value):
+        if isinstance(key, slice):
+            section = self.get_slice_section(key)
+            if len(value) != (section.stop - section.start):
+                raise KeyError("mismatching length between slice range and value")
+            for column_id, v in zip(self.column_ids[section], value):
+                self[column_id] = v
+        if key in self.column_ids:
+            self._update_value(key, value)
+            if self.table is not None:
+                self.table.columns[key]._update_value(self.unique_id, value)
+        else:
+            raise KeyError(f"The key '{key}' does not exist")
+
+    def __iter__(self):
+        return iter(self.data)
+
+    def __repr__(self):
+        return f"Row({self.data})"
 
 
 class _Row:
