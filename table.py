@@ -5,6 +5,8 @@ table[row]                  returns a TableArray instance with unique_id row
 table[column]               returns a TableArray instance with unique_id column
 table[row][column]          returns a value at row, column
 table[column][row]          is equivalent to table[row][column]
+table_array[row_1:row_4]    returns a TableArray instance with rows from row_1 to row_4, and all columns
+table_array[col_1:col_4]    returns a TableArray instance with columns from col_1 to col_4, and all rows
 table[row_1:row_5]          returns a Table instance with a subset of the rows, and all columns
 table[col_1:col_5]          returns a Table instance with all rows, and a subset of the columns
 table[row_1:row_5][col_1:col_5]
@@ -42,22 +44,30 @@ table_1 - table_2           removes values all data, rows, and columns of table_
                             row and column ids must match
 Start with disallowing the return and assignment of lists.
 See how feasible using only objects is.
-I think using objects will be easier for me and the user of this module.
-"""
+I think using only objects will be easier for me and the user of this module.
 
+self.data must have __len__, __iter__, be ordered,
+
+"""
 class TableArray:
-    def __init__(self, unique_id, data, data_ids=None, table=None, default_value=None):
+    def __init__(self, unique_id, data, arrangement, data_ids=None, table=None, default_value=None):
         self.unique_id = unique_id
         self.data = data
+        self.arrangement = arrangement
         self.table = table
         if table is not None and data_ids is not None:
             raise Exception("data ids are ambiguous. Both data_ids and table parameters are assigned.")
-        elif table is not None: # ???? CHECK HERE
-            self.data_ids = table.data_ids
+        elif table is not None:
+            if arrangement is Table.COLUMN:
+                self.data_ids = table._data_ids[Table.ROW]
+            elif arrangement is Table.ROW:
+                self.data_ids = table._data_ids[Table.COLUMN]
+            else:
+                assert False, "arrangement does not exist"
         elif data_ids is not None:
             self.data_ids = data_ids
         else:
-            self.data_ids = list(range(len(self.data)))
+            self.data_ids = range(len(self.data))
         self._as_dict = dict(zip(self.data_ids, self.data))
         self.default_value = default_value
 
@@ -83,245 +93,65 @@ class TableArray:
             section = self.get_slice_section(key)
             data_ids = self.data_ids[section]
             data = self.data[section]
-            return _Row(self.unique_id, data, data_ids, None, self.default_value) # SHOULD IT BE NONE
+            return TableArray(self.unique_id, data, self.arrangement, data_ids, None, self.default_value)
         elif key in self.data_ids:
             return self._as_dict[key]
         else:
             raise KeyError(f"The key '{key}' does not exist")
 
-    def __setitem__(self, key, value):
-        if isinstance(key, slice):
-            section = self.get_slice_section(key)
-            if len(value) != (section.stop - section.start):
-                raise KeyError("mismatching length between slice range and value")
-            for column_id, v in zip(self.column_ids[section], value):
-                self[column_id] = v
-        if key in self.column_ids:
-            self._update_value(key, value)
-            if self.table is not None:
-                self.table.columns[key]._update_value(self.unique_id, value)
-        else:
-            raise KeyError(f"The key '{key}' does not exist")
-
     def __iter__(self):
         return iter(self.data)
 
     def __repr__(self):
-        return f"Row({self.data})"
-
-
-class _Row:
-    def __init__(self, row_id, data, column_ids=None, table=None, default_value=None):
-        self.row_id = row_id
-        self.data = data
-        self.table = table
-        if table is not None and column_ids is not None:
-            raise Exception("column ids are ambiguous. Both column_ids and table parameters are assigned.")
-        elif table is not None:
-            self.column_ids = table.column_ids
-        elif column_ids is not None:
-            self.column_ids = column_ids
-        else:
-            self.column_ids = list(range(len(self.data)))
-        self._as_dict = dict(zip(self.column_ids, self.data))
-        self.default_value = default_value
-
-    # _update_value is needed so the Column class can update
-    # this class without this class trying to update the Column
-    # class when it gets updated
-    def _update_value(self, column_id, new_value):
-        self._as_dict[column_id] = new_value
-        self.data = list(self._as_dict.values())
-
-    def _get_column_index(self, column_id):
-        """gets index of column, returns None if None"""
-        if column_id in self.column_ids:
-            return self.column_ids.index(column_id)
-        elif column_id is None:
-            return None
-        else:
-            raise KeyError(f"The key '{column_id}' does not exist")
-
-    def get_slice_section(self, slice_obj):
-        start_index = self._get_column_index(slice_obj.start)
-        stop_index = self._get_column_index(slice_obj.stop)
-        step = slice_obj.step
-        if not isinstance(step, int) and step is not None:
-            raise TypeError("step must be None or of type 'int'")
-        return slice(start_index, stop_index, step)
-
-    def __getitem__(self, key):
-        if isinstance(key, slice):
-            section = self.get_slice_section(key)
-            column_ids = self.column_ids[section]
-            data = self.data[section]
-            return _Row(self.row_id, data, column_ids, None, self.default_value)
-        elif key in self.column_ids:
-            return self._as_dict[key]
-        else:
-            raise KeyError(f"The key '{key}' does not exist")
-
-    def __setitem__(self, key, value):
-        if isinstance(key, slice):
-            section = self.get_slice_section(key)
-            if len(value) != (section.stop - section.start):
-                raise KeyError("mismatching length between slice range and value")
-            for column_id, v in zip(self.column_ids[section], value):
-                self[column_id] = v
-        if key in self.column_ids:
-            self._update_value(key, value)
-            if self.table is not None:
-                self.table.columns[key]._update_value(self.row_id, value)
-        else:
-            raise KeyError(f"The key '{key}' does not exist")
-
-    def __iter__(self):
-        return iter(self.data)
-
-    def __repr__(self):
-        return f"Row({self.data})"
-
-    def _merge_column_ids(self, other):
-        merged_column_ids = self.column_ids
-        for column_id in other.column_ids:
-            if column_id not in self.column_ids:
-                merged_column_ids.append(column_id)
-        return merged_column_ids
-
-    def _merge_data(self, other, merged_column_ids):
-        new_row = [self[column_id] if column_id in self.column_ids else self.default_value\
-                        for column_id in merged_column_ids]
-        other_data = other.data
-        # continue here after capability of adding colums is created
-
-    def __add__(self, other):
-        if isinstance(other, _Row):
-            pass
-
-class _Column:
-    def __init__(self, column_id, data, row_ids=None, table=None, default_value=None):
-        self.column_id = column_id
-        self.data = data
-        if table is not None and row_ids is not None:
-            raise Exception("row ids are ambiguous. Both row_ids and table parameters are assigned.")
-        elif table is not None:
-            self.row_ids = table.row_ids
-        elif row_ids is not None:
-            self.row_ids = row_ids
-        else:
-            self.row_ids = list(range(len(self.data)))
-        self.table = table
-        self._as_dict = dict(zip(self.row_ids, self.data)) # make this a getter ??
-        self.default_value = default_value
-
-    def _update_value(self, row_id, new_value):
-        self._as_dict[row_id] = new_value
-        self.data = list(self._as_dict.values())
-
-    def _get_row_index(self, row_id):
-        """gets index of row, returns None if None"""
-        if row_id in self.row_ids:
-            return self.row_ids.index(row_id)
-        elif row_id is None:
-            return None
-        else:
-            raise KeyError(f"The key '{row_id}' does not exist")
-
-    def get_slice_section(self, slice_obj):
-        start_index = self._get_row_index(slice_obj.start)
-        stop_index = self._get_row_index(slice_obj.stop)
-        step = slice_obj.step
-        if not isinstance(step, int) and step is not None:
-            raise TypeError("step must be None or of type 'int'")
-        return slice(start_index, stop_index, step)
-
-    def __getitem__(self, key):
-        if isinstance(key, slice):
-            section = self.get_slice_section(key)
-            row_ids = self.row_ids[section]
-            data = self.data[section]
-            # are there consequences of having None for table below?
-            return _Column(self.column_id, data, row_ids, None, self.default_value)
-        elif key in self.row_ids:
-            return self._as_dict[key]
-        else:
-            raise KeyError(f"The key '{key}' does not exist")
-
-    def __setitem__(self, key, value):
-        if isinstance(key, slice):
-            section = self.get_slice_section(key)
-            if len(value) != (section.stop - section.start):
-                raise KeyError("mismatching length between slice range and value")
-            for row_id, v in zip(self.row_ids[section], value):
-                self[row_id] = v
-        elif key in self.row_ids:
-            self._update_value(key, value)
-            if self.table is not None:
-                self.table.rows[key]._update_value(self.column_id, value)
-        else:
-            raise KeyError(f"The key '{key}' does not exist")
-
-    def __iter__(self):
-        return iter(self.data)
-
-    def __repr__(self):
-        return f"Column({self.data})"
-
-    def _merge_row_ids(self, other):
-        merged_row_ids = self.row_ids
-        for row_id in other.row_ids:
-            if row_id not in self.row_ids:
-                merged_row_ids.append(row_id)
-        return merged_row_ids
-
-    def _merge_data(self, other, merged_row_ids):
-        data = list()
-        for row_id in merged_row_ids:
-            data.append([
-                self[row_id] if row_id in self.row_ids else self.default_value,
-                other[row_id] if row_id in other.row_ids else other.default_value
-            ])
-        return data
-
-    # add capability in Table to reposition columns
-    def __add__(self, other):
-        if isinstance(other, _Column):
-            column_ids = [self.column_id, other.column_id]
-            merged_row_ids = self._merge_row_ids(other)
-            data = self._merge_data(other, merged_row_ids)
-        elif isinstance(other, Table):
-            column_ids = [self.column_id] + other.column_ids
-            merged_row_ids = self._merge_row_ids(other)
-            data = self._merge_data(other, merged_row_ids)
-        else:
-            raise TypeError(f"can not add types '_Column' and {type(other).__name__}")
-        return Table(column_ids, merged_row_ids, data)
-
-    def __radd__(self, other):
-        return other + self
-
-
+        s = ""
+        if self.arrangement is Table.COLUMN:
+            s = self.unique_id.__repr__() + "\t"
+        return f"TableArray({self.data})"
 
 class Table:
+    ROW = object()
+    COLUMN = object()
     def __init__(self, column_ids: list, row_ids: list, data, default_value=None):
         if len(row_ids) != len(data):
             raise ValueError("row ids do not have the same length as data")
         elif len(column_ids) != len(data[0]):  # assume data has values in it
             raise ValueError("number of columns in data should match column ids")
-        self.column_ids = column_ids
-        self.row_ids = row_ids
-        self.data = data # a 2D matrix
         self.default_value = default_value
-
-        self.columns = dict()
+        self._data_ids = {Table.COLUMN: column_ids,
+                          Table.ROW: row_ids}
+        self._structure = {Table.COLUMN: dict(),
+                           Table.ROW: dict()}
         for i, col_id in enumerate(column_ids):
             values = [row[i] for row in data]
-            self.columns[col_id] = _Column(col_id, values, table=self, default_value=self.default_value)
-        self.rows = dict()
+            self._structure[Table.COLUMN][col_id] = TableArray(col_id, values, Table.COLUMN, table=self, default_value=default_value)
         for row_number, row_id in enumerate(row_ids):
-            self.rows[row_id] = _Row(row_id, data[row_number], table=self, default_value=default_value)
+            self._structure[Table.ROW][row_id] = TableArray(row_id, data[row_number], Table.ROW, table=self, default_value=default_value)
 
-    def get_slice_section(self, slice_obj):
+    @property
+    def data(self):
+        return [row.data for row in self.rows.values()]
+
+    @property
+    def transposed_data(self):
+        return[column.data for column in self.columns.values()]
+
+    @property
+    def row_ids(self):
+        return self._data_ids[Table.ROW]
+
+    @property
+    def column_ids(self):
+        return self._data_ids[Table.COLUMN]
+
+    @property
+    def rows(self):
+        return self._structure[Table.ROW]
+
+    @property
+    def columns(self):
+        return self._structure[Table.COLUMN]
+
+    def _get_slice_section(self, slice_obj):
         start_index = self._get_key_index(slice_obj.start)
         stop_index = self._get_key_index(slice_obj.stop)
         step = slice_obj.step
@@ -343,8 +173,8 @@ class Table:
         if isinstance(key, slice):
             if key.start in self.column_ids and key.stop in self.row_ids or \
                 key.start in self.row_ids and key.stop in self.column_ids:
-                raise KeyError("start and stop slices must be both row ids or column ids")
-            section = self.get_slice_section(key)
+                raise KeyError("start and stop slices must be both rows or columns")
+            section = self._get_slice_section(key)
             if key.start is None and key.stop is None:
                 if key.step is None:
                     return Table(self.column_ids, self.row_ids, self.data, self.default_value)
@@ -368,55 +198,8 @@ class Table:
         else:
             raise KeyError(f"The key '{key}' does not exist")
 
-    def __setitem__(self, key, value):
-        if isinstance(key, slice):
-            if key.start in self.column_ids and key.stop in self.row_ids or \
-                key.start in self.row_ids and key.stop in self.column_ids:
-                raise KeyError("start and stop slices must be both row ids or column ids")
-            section = self.get_slice_section(key)
-            if key.start is None and key.stop is None:
-                if key.step is None:
-                    return
-                else:
-                    raise KeyError("step is defined without targeting rows or columns")
-            elif key.start in self.column_ids or key.stop in self.column_ids:
-                if len(value) != len(self.column_ids):
-                    raise ValueError("length of slice does not match length of value assigned")
-                elif len(value[0]) != len(self.row_ids):
-                    raise ValueError("length of value assigned does not match length of data")
-                for row_number, row_id in enumerate(self.row_ids):
-
-
-            elif key.start in self.row_ids or key.stop in self.row_ids:
-                pass
-            assert False, "slice start, stop, and step not accounted for"
-
-        elif key in self.column_ids:
-            if len(value) != len(self.row_ids):
-                raise ValueError("length of value assigned does not match length of data")
-            self.columns[key] = _Column(key, value, table=self, default_value=self.default_value)
-            index = self.column_ids.index(key)
-            for row_number, row_id in enumerate(self.row_ids):
-                self.data[row_number][index] = value[row_number]
-                self.rows[row_id]._update_value(key, value[row_number])
-        elif key in self.row_ids:
-            if len(value) != len(self.column_ids):
-                raise ValueError("length of value assigned does not match length of data coloumns")
-            self.rows[key] = _Row(key, value, table=self, default_value=self.default_value)
-            index = self.row_ids.index(key)
-            self.data[index] = value
-            for column_id, column_number in enumerate(self.column_ids):
-                self.columns[column_id]._update_value(key, value[column_number])
-        else:
-            raise KeyError(f"The key '{key}' does not exist")
-
     def transpose(self):
-        data = list()
-        for column_number, column_id in enumerate(self.column_ids):
-            data.append([])
-            for row in self.data:
-                data[column_number].append(row[column_number])
-        return Table(self.row_ids, self.column_ids, data, self.default_value)
+        return Table(self.row_ids, self.column_ids, self.transposed_data, self.default_value)
 
     def _split_row_ids(self, other):
         other_only_row_ids = list()
@@ -458,27 +241,55 @@ class Table:
         for row_id, column_id in zip(matching_row_ids, matching_column_ids):
             pass
 
-    def __add__(self, other):
-        if not (isinstance(other, Table) or isinstance(other, _Row) or isinstance(other, _Column)):
-            raise TypeError(f"can not add types 'Table' and {type(other).__name__}")
-        if self.default_value != other.default_value:
-            raise ValueError("can not merge tables with mismatched default values")
+    def __repr__(self):
+        s = "\t"
+        for c in self.column_ids:
+            s += c.__str__() + "\t"
+        s += "\n"
+        for r in self.row_ids:
+            s += r.__str__() + "\t" * 2
+            for d in self.rows[r].data:
+                s += d.__str__() + "\t" * 2
+            s += "\n"
+        return s
+
+
 
 
 def test():
-    bc = ["Date", "1 Mo", "1.5 Mo", "2 Mo"]
-    br = ["a", "b", "c"]
-    bt = [[111, 222, 333, 444],
-          [555, 666, 777, 888],
-          [999, 1010, 1111, 1212]]
+    bc = ["Date", "1 Mo", "1.5 Mo", "2 Mo", "3 Mo", "4 Mo"]
+    br = ["a", "b", "c", "d"]
+    bt = [list(range(row * len(bc) + 2, len(bc) + row * len(bc) + 2)) \
+          for row in range(len(br))]
     t = Table(bc, br, bt)
-    t["c"]["2 Mo"] = 199
-    t["Date"]["a"] = 0
-    print("t[c]:", t["c"])
-    print("t[2 Mo]:", t["2 Mo"])
-    print("t[a]:", t["a"])
-    print()
-    print(t["b":"c"]["1 Mo":])
+    print("Table", t)
+    print("rows")
+    for r in br:
+        print(t[r])
+    print("columns")
+    for c in bc:
+        print(t[c])
+    print(t["b"]["1.5 Mo"])
+    print(t["1.5 Mo"]["b"])
+    print(t["c":])
+    t2 = t["1 Mo":"3 Mo"]
+    print(t2)
+    print(t2.transpose())
+    print(t2["1 Mo"]["a"])
+    print(t2.transpose().transposed_data)
+    print(t)
+    print(t["Date"::2]["a"::3])
+    print(t["d"]["3 Mo":])
+    print(t["Date"]["d":])
+
+
+
+
+
+
+
+
+
 
 
 test()
