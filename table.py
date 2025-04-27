@@ -1,25 +1,13 @@
 class TableArray:
-    def __init__(self, unique_id, data, arrangement, data_ids=None, table=None, default_value=None):
+    def __init__(self, unique_id, data, arrangement, data_ids=None, default_value=None):
         self.unique_id = unique_id
         self.data = data
         self.arrangement = arrangement
-        self.table = table
-        if table is not None and data_ids is not None:
-            raise Exception("data ids are ambiguous. Both data_ids and table parameters are assigned.")
-        elif table is not None:
-            if arrangement is Table.COLUMN:
-                self.data_ids = table._data_ids[Table.ROW]
-            elif arrangement is Table.ROW:
-                self.data_ids = table._data_ids[Table.COLUMN]
-            else:
-                assert False, "arrangement does not exist"
-        elif data_ids is not None:
-            self.data_ids = data_ids
-        else:
-            self.data_ids = range(len(self.data))
-
+        assert data_ids is not None
+        self.data_ids = data_ids
 
         self._as_dict = dict(zip(self.data_ids, self.data))
+        self.data_ids = set(data_ids)
         self.default_value = default_value
 
     def __getitem__(self, key):
@@ -48,15 +36,13 @@ class Table:
         self.default_value = default_value
         self._data_ids = {Table.COLUMN: set(column_ids),
                           Table.ROW: set(row_ids)}
-        self._ordered_data_ids = {Table.COLUMN: column_ids,
-                                  Table.ROW: row_ids}
         self._structure = {Table.COLUMN: dict(),
                            Table.ROW: dict()}
         for i, col_id in enumerate(column_ids):
             values = [row[i] for row in data]
-            self._structure[Table.COLUMN][col_id] = TableArray(col_id, values, Table.COLUMN, table=self, default_value=default_value)
+            self._structure[Table.COLUMN][col_id] = TableArray(col_id, values, Table.COLUMN, data_ids=row_ids, default_value=default_value)
         for row_number, row_id in enumerate(row_ids):
-            self._structure[Table.ROW][row_id] = TableArray(row_id, data[row_number], Table.ROW, table=self, default_value=default_value)
+            self._structure[Table.ROW][row_id] = TableArray(row_id, data[row_number], Table.ROW, data_ids=column_ids, default_value=default_value)
 
     @property
     def row_ids(self):
@@ -95,7 +81,7 @@ class Table:
         return s
 
 def test():
-    bc = ["Date", "1 Mo", "1.5 Mo", "2 Mo", "3 Mo", "4 Mo"]
+    bc = ["1111", "2222", "3333", "4444", "5555", "6666"]
     br = ["a", "b", "c", "d"]
     bt = [list(range(row * len(bc) + 2, len(bc) + row * len(bc) + 2)) \
           for row in range(len(br))]
@@ -111,7 +97,5 @@ def test():
     print("columns")
     for c in bc:
         print(t[c])
-    print(t["b"]["1.5 Mo"])
-    print(t["1.5 Mo"]["b"])
 
 test()
