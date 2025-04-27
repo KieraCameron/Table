@@ -50,6 +50,7 @@ self.data must have __len__, __iter__, be ordered,
 
 """
 import csv
+from timeit import Timer
 
 
 class TableArray:
@@ -105,11 +106,6 @@ class TableArray:
     def __iter__(self):
         return iter(self.data)
 
-    def __repr__(self):
-        s = ""
-        if self.arrangement is OrderedTable.COLUMN:
-            s = self.unique_id.__repr__() + "\t"
-        return f"TableArray({self.data})"
 
 class OrderedTable:
     ROW = object()
@@ -160,10 +156,8 @@ class OrderedTable:
             rawfile = list(csv.reader(rawfile))
             headings = rawfile[0]
             del rawfile[0]
-            if len(headings) == len(rawfile[0]):
-                del headings[0]
-            else:
-                raise ValueError("length of heading must match data")
+            del headings[0]
+
             if parse_column:
                 headings = [parse_column(heading) for heading in headings]
             row_ids = list()
@@ -280,7 +274,7 @@ class OrderedTable:
         for row_id, column_id in zip(matching_row_ids, matching_column_ids):
             pass
 
-    def __repr__(self):
+    """def __repr__(self):
         s = "\t"
         for c in self.column_ids:
             s += c.__str__() + "\t"
@@ -290,7 +284,7 @@ class OrderedTable:
             for d in self.rows[r].data:
                 s += d.__str__() + "\t" * 2
             s += "\n"
-        return s
+        return s"""
 
 
 
@@ -321,4 +315,8 @@ def test():
     print(t["d"]["3 Mo":])
     print(t["Date"]["d":])
 
-test()
+tt = Timer()
+table = OrderedTable.extract_csv("test.csv", parse_data=int)
+print(table["organization"])
+print(tab)
+print (f"{Timer()-tt} seconds")
